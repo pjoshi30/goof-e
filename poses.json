@@ -1,0 +1,34 @@
+{
+  "rest": {
+    "shoulder_pan": -7.65,
+    "shoulder_lift": -104.0,
+    "elbow_flex": 94.46,
+    "wrist_flex": 57.85,
+    "wrist_roll": -4.53,
+    "gripper": 1.06
+  },
+  "neutral": {
+    "shoulder_pan": -32.44,
+    "shoulder_lift": -104.18,
+    "elbow_flex": 50.24,
+    "wrist_flex": 68.84,
+    "wrist_roll": 15.6,
+    "gripper": 1.06
+  },
+  "happy": {
+    "shoulder_pan": -32.62,
+    "shoulder_lift": -104.18,
+    "elbow_flex": 54.99,
+    "wrist_flex": 42.99,
+    "wrist_roll": 16.84,
+    "gripper": 98.61
+  },
+  "sad": {
+    "shoulder_pan": -3.78,
+    "shoulder_lift": -58.29,
+    "elbow_flex": 63.69,
+    "wrist_flex": 69.19,
+    "wrist_roll": 27.47,
+    "gripper": 1.13
+  }
+}
