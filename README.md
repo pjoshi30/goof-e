@@ -19,6 +19,8 @@ conda activate lerobot-mac
 | `python -m deskbot.calib_arm` | Touch the sheet's targets with the gripper tip; fits where the arm sits. |
 | `python -m deskbot.touch_test` | Click the camera image; the arm touches that spot. |
 | `python -m deskbot.hover 5 20` | Hold the tip 20 mm above target 5, to measure the real gap. |
+| `python -m deskbot.perceive --background` | Save the empty desk (arm parked at rest); redo if lighting or the sheet changes. |
+| `python -m deskbot.perceive` | Find objects; prints position, size, grip angle and writes `snapshots/objects.jpg`. |
 
 Ctrl+C at any time freezes the arm, then parks it at `rest`.
 

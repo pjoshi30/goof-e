@@ -154,3 +154,11 @@ class Arm:
         """Run a list of (pose, seconds) moves back to back."""
         for pose, seconds in keyframes:
             self.move_to(pose, duration=seconds)
+
+
+def joint_limits() -> dict[str, tuple[float, float]]:
+    """Safe joint ranges from the calibration file, without opening the serial port."""
+    arm = Arm()
+    arm._compute_limits()
+    return arm.limits
+
