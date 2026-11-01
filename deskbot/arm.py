@@ -135,6 +135,21 @@ class Arm:
                 break
             time.sleep(max(0.0, dt - (time.perf_counter() - t0 - t)))
 
+    def settle(self, target: Pose, rounds: int = 4, tol_deg: float = 0.3, max_fix_deg: float = 6.0) -> None:
+        """Nudge the arm onto `target` after a move. The servos stop a little short under the
+        arm's weight (worst when reaching far), so command past the target by the measured shortfall."""
+        joints = [j for j in target if j in JOINTS and j != "gripper"]
+        cmd = {j: target[j] for j in joints}
+        for _ in range(rounds):
+            time.sleep(0.25)
+            now = self.read()
+            err = {j: target[j] - now[j] for j in joints}
+            if max(abs(e) for e in err.values()) < tol_deg:
+                break
+            for j in joints:
+                cmd[j] = target[j] + max(-max_fix_deg, min(max_fix_deg, cmd[j] - target[j] + err[j]))
+            self.robot.send_action({f"{j}.pos": v for j, v in self.clamp(cmd).items()})
+
     def play(self, keyframes: list[tuple[Pose, float]]) -> None:
         """Run a list of (pose, seconds) moves back to back."""
         for pose, seconds in keyframes:
