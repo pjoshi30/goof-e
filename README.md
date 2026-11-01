@@ -21,6 +21,8 @@ conda activate lerobot-mac
 | `python -m deskbot.hover 5 20` | Hold the tip 20 mm above target 5, to measure the real gap. |
 | `python -m deskbot.perceive --background` | Save the empty desk (arm parked at rest); redo if lighting or the sheet changes. |
 | `python -m deskbot.perceive` | Find objects; prints position, size, grip angle and writes `snapshots/objects.jpg`. |
+| `python -m deskbot.perceive --er2` | Same, but Gemini Robotics-ER 2 finds and names the objects (needs `GEMINI_API_KEY` in `.env`). |
+| `python -m deskbot.pick_place` | Click an object, then where it should go; the arm moves it (run from Terminal). Uses ER 2; `--classic` for the empty-desk comparison only. |
 
 Ctrl+C at any time freezes the arm, then parks it at `rest`.
 
@@ -38,3 +40,14 @@ Only the camera must stay put afterward; the sheet can be removed.
 
 Teach these poses first: `rest`, `neutral`, `happy`, `sad` (see `deskbot/teach.py`).
 Hardware settings live in `deskbot/config.py`.
+
+## Findings / notes
+
+- **2026-10-31, object detection.** Comparing the camera image with an empty-desk photo
+  finds positions, sizes and grip angles precisely, but it can't tell touching objects apart
+  (a marker, AirPods case and power bank merged into one blob), and white objects on the
+  white sheet come out partial. Takeaway: classic object detection is still not solved by
+  pairing a general-purpose LLM (e.g. Claude) with simple vision; not yet measured
+  head-to-head. Next: try Gemini Robotics-ER 2 (robotics-tuned pointing/boxes) for
+  finding and naming objects, and see how good it is. SAM was ruled out: too slow on a
+  MacBook Air.

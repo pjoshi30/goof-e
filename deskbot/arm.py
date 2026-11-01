@@ -41,10 +41,22 @@ class Arm:
             raise RuntimeError("Motor calibration doesn't match the calibration file. Recalibrate first.")
         self._compute_limits()
         if torque:
-            # Make the goal equal to where the arm is, so enabling torque can't cause a jump.
-            present = bus.sync_read("Present_Position", normalize=False)
-            bus.sync_write("Goal_Position", present, normalize=False)
-            self.robot.configure()  # PID + gripper current limits; re-enables torque
+            # The serial bus occasionally garbles one reply right after opening
+            # ("Incorrect status packet"); retry the setup a couple of times before giving up.
+            for attempt in range(3):
+                try:
+                    # Make the goal equal to where the arm is, so enabling torque can't cause a jump.
+                    present = bus.sync_read("Present_Position", normalize=False)
+                    bus.sync_write("Goal_Position", present, normalize=False)
+                    self.robot.configure()  # PID + gripper current limits; re-enables torque
+                    break
+                except ConnectionError as e:
+                    if attempt == 2:
+                        bus.disconnect(disable_torque=False)
+                        raise ConnectionError(f"{e}\nThe arm isn't answering reliably: check its power "
+                                              "supply and the USB / motor cables.") from e
+                    print(f"  arm didn't answer cleanly ({e}); retrying…")
+                    time.sleep(0.3)
         return self
 
     def _compute_limits(self) -> None:

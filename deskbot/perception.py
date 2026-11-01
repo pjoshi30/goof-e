@@ -2,8 +2,8 @@
 
 The camera is fixed and the arm parks at 'rest' before every look, so anything that
 differs from the saved background is an object. For each one we report where it is on
-the desk, how big it is, and which way to close the gripper across it. Naming the
-objects ("the blue pen") is left to Claude, which sees the numbered overlay.
+the desk, how big it is, and which way to close the gripper across it. Naming objects
+and telling touching ones apart is done by Gemini Robotics-ER 2 (see er2.py).
 """
 
 import json
@@ -21,11 +21,12 @@ BACKGROUND_FILE = OUT_DIR / "background.png"
 WORK_AREA_FILE = OUT_DIR / "work_area.json"   # desk outline (world m); objects outside it are ignored
 
 DIFF_THRESHOLD = 14.0      # colour distance (LAB units) that counts as "changed"
+GROUP_PX = 15              # pieces this close (pixels, ~6 mm on the desk) count as one object
 MIN_AREA_CM2 = 1.0         # smaller blobs are noise (crumbs, glare)
 MAX_AREA_CM2 = 400.0       # bigger ones are lighting changes or the arm, not objects
-GRASP_Z = 0.015            # height the jaws close at, m
+GRASP_Z = 0.004            # height the jaws close at, m (same as grasp.GRASP_Z)
 BASE_CLEAR_M = 0.08        # ignore everything this close to the base (the arm itself)
-MAX_GRIP_MM = 55.0         # widest thing the jaws can close around
+MAX_GRIP_MM = 68.0         # widest footprint the jaws can close around (camera sizes run a few mm big)
 
 
 @dataclass
@@ -39,6 +40,7 @@ class DeskObject:
     reach_m: float           # distance from the arm's base
     reachable: bool          # the arm has an IK solution to grasp it
     contour_px: np.ndarray   # outline in the image, for drawing
+    label: str = ""          # name, when a vision model provided one ("blue marker")
 
     @property
     def graspable(self) -> bool:
@@ -50,7 +52,7 @@ class DeskObject:
         return (self.axis_deg + 90.0) % 180.0
 
     def summary(self) -> dict:
-        return {"id": self.id, "x_cm": round(self.x * 100, 1), "y_cm": round(self.y * 100, 1),
+        return {"id": self.id, **({"label": self.label} if self.label else {}), "x_cm": round(self.x * 100, 1), "y_cm": round(self.y * 100, 1),
                 "size_mm": [round(self.length_mm), round(self.width_mm)],
                 "reach_cm": round(self.reach_m * 100, 1), "graspable": self.graspable}
 
@@ -103,8 +105,16 @@ def change_mask(img: np.ndarray, background: np.ndarray) -> np.ndarray:
 def find_objects(img: np.ndarray, background: np.ndarray, desk: DeskMap,
                  model: ArmModel, limits: dict) -> list[DeskObject]:
     mask = change_mask(img, background)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    base = np.asarray(model.base_xyz[:2], float)
+    # A white object on the white sheet often shows up as a few separate pieces (only its
+    # shaded edges differ). Pieces closer than ~6 mm are one object: group them, then
+    # outline each group by the convex hull of its pixels.
+    near = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (GROUP_PX, GROUP_PX)))
+    n, labels = cv2.connectedComponents(near)
+    contours = []
+    for k in range(1, n):
+        ys, xs = np.nonzero((labels == k) & (mask > 0))
+        if len(xs):
+            contours.append(cv2.convexHull(np.column_stack([xs, ys]).astype(np.int32)))
     on_desk = _work_area_test()
     img_h, img_w = mask.shape
     found = []
@@ -112,26 +122,34 @@ def find_objects(img: np.ndarray, background: np.ndarray, desk: DeskMap,
         bx, by, bw, bh = cv2.boundingRect(c)
         if bx <= 1 or by <= 1 or bx + bw >= img_w - 1 or by + bh >= img_h - 1:
             continue  # cut off by the frame edge: can't tell its true size or centre
-        world_mm = desk.to_world(c.reshape(-1, 2).astype(float)) * 1000
-        area_cm2 = cv2.contourArea(world_mm.astype(np.float32)) / 100
-        if not MIN_AREA_CM2 <= area_cm2 <= MAX_AREA_CM2:
-            continue
-        (cx, cy), (w, h), ang = cv2.minAreaRect(world_mm.astype(np.float32))
-        centre = np.array([cx, cy]) / 1000
-        reach = float(np.linalg.norm(centre - base))
-        if reach < BASE_CLEAR_M:
-            continue
-        if not on_desk(*centre):
-            continue  # floor, wall, or the parked arm
-        # minAreaRect's angle belongs to the side of length w; make it the long side's.
-        length, width, axis = (w, h, ang) if w >= h else (h, w, ang + 90.0)
-        reachable = all(model.ik((centre[0], centre[1], z), limits) is not None for z in (GRASP_Z, 0.07))
-        found.append(DeskObject(0, float(centre[0]), float(centre[1]), float(length), float(width),
-                                float(axis % 180.0), reach, reachable, c))
+        obj = describe(c, desk, model, limits, on_desk)
+        if obj is not None:
+            found.append(obj)
     found.sort(key=lambda o: o.reach_m)
     for i, o in enumerate(found, 1):
         o.id = i
     return found
+
+
+def describe(c: np.ndarray, desk: DeskMap, model: ArmModel, limits: dict, on_desk=None,
+             label: str = "", check_area: bool = True) -> DeskObject | None:
+    """Outline in pixels -> DeskObject (desk position, footprint, grip angle, reachability),
+    or None if it's noise, off the desk, or the arm itself."""
+    on_desk = on_desk or _work_area_test()
+    world_mm = desk.to_world(c.reshape(-1, 2).astype(float)) * 1000
+    area_cm2 = cv2.contourArea(world_mm.astype(np.float32)) / 100
+    if check_area and not MIN_AREA_CM2 <= area_cm2 <= MAX_AREA_CM2:
+        return None
+    (cx, cy), (w, h), ang = cv2.minAreaRect(world_mm.astype(np.float32))
+    centre = np.array([cx, cy]) / 1000
+    reach = float(np.linalg.norm(centre - np.asarray(model.base_xyz[:2], float)))
+    if reach < BASE_CLEAR_M or not on_desk(*centre):
+        return None  # the arm itself, the floor, or the wall
+    # minAreaRect's angle belongs to the side of length w; make it the long side's.
+    length, width, axis = (w, h, ang) if w >= h else (h, w, ang + 90.0)
+    reachable = all(model.ik((centre[0], centre[1], z), limits) is not None for z in (GRASP_Z, 0.07))
+    return DeskObject(0, float(centre[0]), float(centre[1]), float(length), float(width),
+                      float(axis % 180.0), reach, reachable, c, label)
 
 
 def annotate(img: np.ndarray, objects: list[DeskObject], desk: DeskMap) -> np.ndarray:
@@ -146,7 +164,7 @@ def annotate(img: np.ndarray, objects: list[DeskObject], desk: DeskMap) -> np.nd
                                        [o.x + half * np.cos(g), o.y + half * np.sin(g)]]))
         cv2.line(out, tuple(ends[0].astype(int)), tuple(ends[1].astype(int)), (255, 0, 255), 3)
         cx, cy = desk.to_pixel((o.x, o.y)).astype(int)
-        label = str(o.id)
+        label = f"{o.id} {o.label}" if o.label else str(o.id)
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.4, 3)
         cv2.rectangle(out, (cx + 18, cy - th - 22), (cx + 30 + tw, cy - 10), (0, 0, 0), -1)
         cv2.putText(out, label, (cx + 24, cy - 16), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 3)
