@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOOF-E</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Michroma&family=Rajdhani:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #030405;
+    --gold: #ffb84d;
+    --gold-hi: #ffd88a;
+    --gold-dim: rgba(255, 184, 77, .55);
+    --gold-faint: rgba(255, 184, 77, .14);
+    --line: rgba(255, 184, 77, .22);
+    --ink: #f6ead2;
+    --muted: #a8977a;
+    --red: #ff4d3d;
+    --logo: "Michroma", "Rajdhani", system-ui, sans-serif;
+    --body: "Rajdhani", system-ui, -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; color: var(--ink); font: 500 16.5px/1.4 var(--body); letter-spacing: .015em; overflow: hidden;
+    background:
+      radial-gradient(60vmax 45vmax at 34% 52%, rgba(255, 150, 40, .10), transparent 65%),
+      radial-gradient(120vmax 90vmax at 50% 50%, transparent 55%, rgba(0, 0, 0, .7)),
+      var(--void);
+  }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- logo + corner controls ---------- */
+  .brand { position: fixed; top: 22px; left: 28px; display: flex; align-items: center; gap: 14px; z-index: 5; }
+  .brand svg { width: 38px; height: 38px; filter: drop-shadow(0 0 8px rgba(255, 184, 77, .6)); }
+  .brand svg .spin { transform-origin: 20px 20px; animation: spin 9s linear infinite; }
+  .wordmark { display: flex; flex-direction: column; line-height: 1; }
+  .wordmark b {
+    font: 400 22px var(--logo); letter-spacing: .42em; margin-right: -.42em;
+    background: linear-gradient(180deg, #fff3d6 0%, var(--gold-hi) 35%, var(--gold) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 18px rgba(255, 184, 77, .35);
+  }
+  .wordmark small { margin-top: 7px; font: 400 9.5px var(--logo); letter-spacing: .55em; color: var(--gold-dim); }
+  .corner { position: fixed; top: 22px; right: 24px; display: flex; gap: 8px; z-index: 5; }
+  .icon {
+    width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: rgba(255, 184, 77, .04);
+    display: grid; place-items: center; cursor: pointer; color: var(--gold-hi);
+  }
+  .icon:hover { border-color: var(--gold-dim); background: var(--gold-faint); }
+  .icon svg { width: 17px; height: 17px; }
+  .icon.off { color: var(--muted); opacity: .6; }
+
+  /* ---------- stage ---------- */
+  main { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 420px); grid-template-rows: minmax(0, 1fr); }
+  .stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; }
+  #orbWrap {
+    position: relative; width: min(66vh, 52vw); aspect-ratio: 1; cursor: pointer;
+    touch-action: none; user-select: none; -webkit-user-select: none; outline: none; border-radius: 50%;
+  }
+  #orbWrap:focus-visible { box-shadow: 0 0 0 2px var(--gold-dim); }
+  #orb { width: 100%; height: 100%; display: block; }
+  .caption { text-align: center; min-height: 64px; }
+  #stateText { font: 400 13px var(--logo); letter-spacing: .38em; color: var(--gold-hi); text-transform: uppercase;
+               text-shadow: 0 0 12px rgba(255, 184, 77, .5); }
+  #hint { margin-top: 8px; color: var(--muted); font-size: 15px; }
+  kbd { font: 500 12px var(--mono); padding: 1px 7px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); }
+  #stop {
+    margin-top: 12px; padding: 10px 26px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--red); background: rgba(255, 77, 61, .14); color: #ffd9d4;
+    font: 400 12px var(--logo); letter-spacing: .32em; box-shadow: 0 0 22px rgba(255, 77, 61, .35);
+  }
+  #stop:hover { background: rgba(255, 77, 61, .28); }
+
+  /* ---------- chat ---------- */
+  .chat {
+    display: flex; flex-direction: column; min-height: 0; margin: 84px 22px 22px 0;
+    border: 1px solid var(--line); border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 184, 77, .05), rgba(255, 184, 77, .015));
+    backdrop-filter: blur(10px);
+  }
+  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px 10px; display: flex; flex-direction: column; gap: 10px;
+         scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  #log > * { flex-shrink: 0; }   /* keep each message full size; the log scrolls instead */
+  .empty { margin: auto; text-align: center; color: var(--muted); font-size: 15px; padding: 20px; }
+  .empty b { display: block; font: 400 11px var(--logo); letter-spacing: .35em; color: var(--gold-dim); margin-bottom: 10px; }
+  .msg { max-width: 88%; padding: 9px 13px; border-radius: 14px; animation: rise .25s ease-out; font-size: 17px; line-height: 1.32; }
+  .you { align-self: flex-end; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .1); border-bottom-right-radius: 4px; }
+  .bot { align-self: flex-start; background: rgba(255, 184, 77, .08); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .bot.cheer { font-family: var(--logo); font-size: 13px; letter-spacing: .2em; color: var(--gold-hi); }
+  .bot.cheer.sad { color: #ffb3a8; border-color: rgba(255, 120, 100, .3); }
+  .note { align-self: flex-start; font: 400 12px var(--mono); color: var(--muted); padding: 0 4px; animation: rise .2s ease-out; }
+  .note.warn { color: #ffcf7a; } .note.err { color: #ff8f80; }
+  .scan { align-self: flex-start; width: 88%; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+          background: rgba(0, 0, 0, .35); animation: rise .25s ease-out; }
+  .scan img { display: block; width: 100%; max-height: 170px; object-fit: cover; cursor: zoom-in; }
+  .scan div { padding: 7px 10px; font: 400 12px var(--mono); color: var(--muted); }
+  .composer { padding: 12px; border-top: 1px solid var(--line); }
+  #text { width: 100%; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line); outline: none;
+          background: rgba(0, 0, 0, .35); color: var(--ink); font: 500 16px var(--body); }
+  #text:focus { border-color: var(--gold-dim); }
+  #text::placeholder { color: #7d705b; }
+
+  /* ---------- lightbox ---------- */
+  #lightbox { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .82); display: grid; place-items: center; cursor: zoom-out; }
+  #lightbox img { max-width: 92vw; max-height: 88vh; border: 1px solid var(--line); border-radius: 10px; }
+
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    main { grid-template-columns: 1fr; height: auto; }
+    .stage { padding-top: 84px; }
+    #orbWrap { width: min(78vw, 46vh); }
+    .chat { margin: 8px 14px 14px; height: 52vh; }
+    .brand { left: 16px; } .corner { right: 14px; }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="brand" aria-label="GOOF-E Mark I">
+  <svg viewBox="0 0 40 40" fill="none" stroke="#ffb84d" aria-hidden="true">
+    <circle cx="20" cy="20" r="18.5" stroke-opacity=".45"/>
+    <g class="spin">
+      <circle cx="20" cy="20" r="14.5" stroke-width="1.6" stroke-dasharray="6 3.2"/>
+    </g>
+    <circle cx="20" cy="20" r="9.5" stroke-opacity=".7"/>
+    <path d="M20 10.5v5M28.2 24.8l-4.3-2.5M11.8 24.8l4.3-2.5" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="20" cy="20" r="3.2" fill="#ffd88a" stroke="none"/>
+  </svg>
+  <div class="wordmark"><b>GOOF-E</b><small>MK I</small></div>
+</div>
+<div class="corner">
+  <button class="icon" id="voiceBtn" title="Voice on/off" aria-label="Voice on or off" aria-pressed="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+  </button>
+  <button class="icon" id="musicBtn" title="Music while the arm moves: on/off" aria-label="Music while moving, on or off" aria-pressed="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+  </button>
+  <button class="icon" id="resetBtn" title="New conversation" aria-label="New conversation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+  </button>
+</div>
+
+<main>
+  <section class="stage">
+    <div id="orbWrap" role="button" tabindex="0" aria-label="Hold to talk to GOOF-E">
+      <canvas id="orb"></canvas>
+    </div>
+    <div class="caption">
+      <div id="stateText">Connecting</div>
+      <div id="hint">Hold the orb, or hold <kbd>Space</kbd>, and speak</div>
+      <button id="stop" hidden>STOP</button>
+    </div>
+  </section>
+  <section class="chat" aria-label="Conversation">
+    <div id="log" aria-live="polite">
+      <div class="empty" id="empty"><b>STANDING BY</b>Try “What’s on the desk?” or “Put the marker next to the AirPods.”</div>
+    </div>
+    <div class="composer"><input id="text" placeholder="Or type here and press Enter" autocomplete="off" aria-label="Type a request"></div>
+  </section>
+</main>
+<div id="lightbox" hidden><img alt="Goof-E's view of the desk"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = $("log");
+let ws, busy = false, voiceOn = true;
+
+/* ================= hologram ================= */
+const orb = { state: "offline", level: 0, flash: 0 };   // level: 0..1 audio energy, flash: stop tint
+(function hologram() {
+  const cv = $("orb"), ctx = cv.getContext("2d");
+  const N = 460, pts = [], edges = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < N; i++) {                       // Fibonacci sphere
+    const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), t = golden * i;
+    pts.push([Math.cos(t) * r, y, Math.sin(t) * r, Math.random()]);
+  }
+  for (let i = 0; i < N; i++) {                       // link each point to its 3 nearest neighbours
+    const d = [];
+    for (let j = 0; j < N; j++) if (j !== i) {
+      const a = pts[i], b = pts[j]; d.push([(a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2, j]);
+    }
+    d.sort((p, q) => p[0] - q[0]);
+    for (let k = 0; k < 3; k++) if (i < d[k][1]) edges.push([i, d[k][1]]);
+  }
+  const rings = [{tilt: 1.15, r: 1.22, speed: .25, dash: [2, 9]}, {tilt: -0.55, r: 1.38, speed: -.16, dash: [14, 6]},
+                 {tilt: 0.25, r: 1.55, speed: .09, dash: [1, 5]}];
+  let rotY = 0, rotX = .35, t0 = performance.now(), smooth = 0, W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    const box = cv.getBoundingClientRect(); W = box.width; H = box.height;
+    cv.width = W * dpr; cv.height = H * dpr;
+  }
+  new ResizeObserver(resize).observe(cv); resize();
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function frame(now) {
+    const dt = Math.min(.05, (now - t0) / 1000); t0 = now;
+    const s = orb.state;
+    const speed = {thinking: 1.5, acting: 1.1, transcribing: 1.2, listening: .55, speaking: .5, offline: .08}[s] ?? .22;
+    smooth += ((orb.level || 0) - smooth) * .25;
+    orb.flash = Math.max(0, orb.flash - dt * 1.4);
+    rotY += dt * speed * (reduce ? .2 : 1);
+    rotX = .35 + Math.sin(now / 4300) * .12;
+    const breathe = s === "online" ? Math.sin(now / 900) * .015 : 0;
+    const R = Math.min(W, H) * .30 * (1 + smooth * .16 + breathe);
+    const cx = W / 2, cy = H / 2, dim = s === "offline" ? .35 : 1;
+    const red = orb.flash;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = "lighter";
+    const col = (a, hi) => {
+      const g = Math.round((hi ? 214 : 176) * (1 - red) + 80 * red), b = Math.round((hi ? 130 : 70) * (1 - red) + 60 * red);
+      return `rgba(255,${g},${b},${a * dim})`;
+    };
+
+    // halo
+    const halo = ctx.createRadialGradient(cx, cy, R * .1, cx, cy, R * 1.9);
+    halo.addColorStop(0, col(.22 + smooth * .25, true)); halo.addColorStop(.45, col(.06)); halo.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.9, 0, 7); ctx.fill();
+
+    // project the sphere
+    const cyR = Math.cos(rotY), syR = Math.sin(rotY), cxR = Math.cos(rotX), sxR = Math.sin(rotX);
+    const P = pts.map(([x, y, z, seed]) => {
+      const x1 = x * cyR + z * syR, z1 = -x * syR + z * cyR;
+      const y2 = y * cxR - z1 * sxR, z2 = y * sxR + z1 * cxR;
+      const f = 2.6 / (2.6 + z2);
+      return [cx + x1 * R * f, cy + y2 * R * f, z2, seed];
+    });
+    // wireframe, brighter at the front
+    ctx.lineWidth = 1;
+    for (const [i, j] of edges) {
+      const a = P[i], b = P[j], depth = (1 - (a[2] + b[2]) / 2) / 2;
+      ctx.strokeStyle = col(.06 + depth * .32 + smooth * .15);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    // nodes, a few twinkling
+    for (const [x, y, z, seed] of P) {
+      const depth = (1 - z) / 2, tw = Math.max(0, Math.sin(now / 260 + seed * 40)) ** 18;
+      ctx.fillStyle = col(.25 + depth * .6 + tw * .8, tw > .3);
+      ctx.beginPath(); ctx.arc(x, y, .7 + depth * 1.2 + tw * 1.6, 0, 7); ctx.fill();
+    }
+    // orbital rings with a travelling bead
+    ctx.lineWidth = 1.3;
+    rings.forEach((g, k) => {
+      const rr = R * g.r, a0 = now / 1000 * g.speed * (s === "thinking" ? 3 : 1), squash = .28 + k * .07;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(g.tilt + a0 * .2);
+      ctx.setLineDash(g.dash); ctx.lineDashOffset = -a0 * 60;
+      ctx.strokeStyle = col(.32 + smooth * .3);
+      ctx.beginPath(); ctx.ellipse(0, 0, rr, rr * squash, 0, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      const ang = a0 * 2.2; ctx.fillStyle = col(.95, true);
+      ctx.beginPath(); ctx.arc(Math.cos(ang) * rr, Math.sin(ang) * rr * squash, 2.4, 0, 7); ctx.fill();
+      ctx.restore();
+    });
+    // segmented arcs around the core
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      const rr = R * (.34 + k * .1), spin = now / 1000 * (k % 2 ? -.6 : .8) * (s === "thinking" ? 2.5 : 1);
+      for (let q = 0; q < 6; q++) {
+        ctx.strokeStyle = col(q % 2 ? .25 : .6);
+        ctx.beginPath(); ctx.arc(cx, cy, rr, spin + q * Math.PI / 3, spin + q * Math.PI / 3 + .55 + k * .1); ctx.stroke();
+      }
+    }
+    // sweep while listening / thinking
+    if ((s === "listening" || s === "thinking") && ctx.createConicGradient) {
+      const g = ctx.createConicGradient(now / 1000 * (s === "listening" ? 3 : 1.6), cx, cy);
+      g.addColorStop(0, col(0)); g.addColorStop(.92, col(0)); g.addColorStop(1, col(.28, true));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 1.05, 0, 7); ctx.fill();
+    }
+    // core
+    const coreR = R * (.13 + smooth * .09);
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.6);
+    core.addColorStop(0, `rgba(255,250,235,${.95 * dim})`); core.addColorStop(.3, col(.9, true));
+    core.addColorStop(.6, col(.35)); core.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, coreR * 2.6, 0, 7); ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ================= audio: levels for the orb, and Goof-E's voice ================= */
+let actx = null, analyser = null, micSrc = null, micA = null;
+function audio() {
+  if (!actx) {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = actx.createAnalyser(); analyser.fftSize = 512;
+    analyser.connect(actx.destination);
+  }
+  if (actx.state === "suspended") actx.resume();
+  return actx;
+}
+const rms = a => { if (!a) return 0; const b = new Uint8Array(a.fftSize); a.getByteTimeDomainData(b);
+                   let s = 0; for (const v of b) s += ((v - 128) / 128) ** 2; return Math.sqrt(s / b.length); };
+function sampleLevels() {
+  let lvl = 0;
+  if (orb.state === "listening") lvl = rms(micA) * 4;
+  else if (playingAudio) lvl = rms(analyser) * 3.2;
+  else if (window.speechSynthesis?.speaking) lvl = .25 + Math.abs(Math.sin(performance.now() / 120)) * .35;
+  orb.level = Math.min(1, lvl);
+  requestAnimationFrame(sampleLevels);
+}
+requestAnimationFrame(sampleLevels);   // starts after the whole script has run
+
+let natural = false, playing = null, queue = [], epoch = 0, playingAudio = null;
+const clips = {};   // "Yayy!" / "Aww…", preloaded so they start in step with the gesture
+fetch("/api/voice").then(r => r.json()).then(j => {
+  natural = !!j.natural;
+  if (natural) for (const mood of ["happy", "sad"])
+    fetch(`/api/exclaim/${mood}.wav`).then(r => r.ok ? r.blob() : null).then(b => { if (b) clips[mood] = URL.createObjectURL(b); });
+}).catch(() => {});
+let sysVoice = null;
+function pickVoice() {
+  const vs = speechSynthesis?.getVoices() || [];
+  sysVoice = vs.find(v => /Daniel|Arthur/i.test(v.name)) || vs.find(v => /en-GB/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+}
+if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+
+function playUrl(url) {
+  return new Promise(done => {
+    const a = new Audio(url);
+    try { audio().createMediaElementSource(a).connect(analyser); } catch (_) {}
+    playingAudio = a;
+    a.onended = a.onerror = () => { if (playingAudio === a) playingAudio = null; done(); };
+    a.play().catch(() => { playingAudio = null; done(); });
+  });
+}
+function builtIn(text, mood) {
+  return new Promise(done => {
+    if (!window.speechSynthesis) return done();
+    const u = new SpeechSynthesisUtterance(text);
+    if (sysVoice) u.voice = sysVoice;
+    if (mood === "happy") { u.pitch = 1.7; u.rate = 1.15; } else if (mood === "sad") { u.pitch = .55; u.rate = .78; }
+    u.onend = u.onerror = done; speechSynthesis.speak(u);
+  });
+}
+function speak(text, mood = "neutral") {
+  if (!voiceOn || !text) return;
+  const my = epoch;
+  const clip = natural
+    ? fetch("/api/speak", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text, mood})})
+        .then(r => r.ok ? r.blob() : null).catch(() => null)
+    : Promise.resolve(null);
+  queue.push({text, mood, clip, my});
+  if (!playing) playNext();
+}
+async function playNext() {
+  const item = queue.shift();
+  if (!item) { playing = null; return; }
+  playing = item;
+  const blob = await item.clip;
+  if (item.my !== epoch) { playing = null; return playNext(); }
+  if (blob) await playUrl(URL.createObjectURL(blob)); else await builtIn(item.text, item.mood);
+  playNext();
+}
+function exclaim(text, mood) {          // instant: the server sends this as the gesture starts
+  if (!voiceOn) return;
+  if (clips[mood]) playUrl(clips[mood]); else builtIn(text, mood);
+}
+function hush() { epoch++; queue = []; playingAudio?.pause(); playingAudio = null; speechSynthesis?.cancel(); }
+
+/* ================= music while the arm moves =================
+   Masks the motor whine. Plays music/<your file> if there is one, otherwise a soft generated
+   pad. Fades in when the arm starts moving, out when it settles; ducks under Goof-E's voice. */
+const music = { on: true, moving: false, gain: null, el: null, pad: null, url: null };
+fetch("/api/music").then(r => r.json()).then(j => { music.url = j.url; }).catch(() => {});
+const MUSIC_VOL = .38, DUCKED = .12;
+function musicOut() {
+  if (!music.gain) { music.gain = audio().createGain(); music.gain.gain.value = 0; music.gain.connect(audio().destination); }
+  return music.gain;
+}
+function ensureSource() {
+  const out = musicOut();
+  if (music.url && !music.el) {
+    music.el = new Audio(music.url); music.el.loop = true; music.el.crossOrigin = "anonymous";
+    audio().createMediaElementSource(music.el).connect(out);
+  } else if (!music.url && !music.pad) {
+    music.pad = makePad(audio(), out);
+  }
+}
+function makePad(ctx, out) {
+  // Slow, warm chords (Fmaj7 - Em7 - Dm7 - Cmaj7) with a gentle shimmer: an original ambient bed.
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1100; lp.Q.value = .4; lp.connect(out);
+  const delay = ctx.createDelay(1); delay.delayTime.value = .38;
+  const fb = ctx.createGain(); fb.gain.value = .32; delay.connect(fb).connect(delay); delay.connect(lp);
+  const hz = n => 440 * 2 ** ((n - 69) / 12);
+  const chords = [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]];
+  let step = 0, timer = null;
+  function chord() {
+    const now = ctx.currentTime, notes = chords[step++ % chords.length];
+    for (const n of notes) for (const det of [-4, 4]) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "triangle"; o.frequency.value = hz(n); o.detune.value = det;
+      g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(.045, now + 1.6); g.gain.linearRampToValueAtTime(0, now + 5.2);
+      o.connect(g).connect(lp); o.start(now); o.stop(now + 5.4);
+    }
+    notes.concat([notes[1] + 12, notes[3] + 12]).forEach((n, i) => {   // soft arpeggio on top
+      const t = now + .6 + i * .55, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = hz(n + 12);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.03, t + .05); g.gain.exponentialRampToValueAtTime(.0001, t + 1.8);
+      o.connect(g); g.connect(lp); g.connect(delay); o.start(t); o.stop(t + 2);
+    });
+  }
+  return {
+    start() { if (!timer) { chord(); timer = setInterval(chord, 4000); } },
+    stop() { clearInterval(timer); timer = null; },
+  };
+}
+function musicMotion(moving) {
+  music.moving = moving;
+  if (!music.on || !actx) return;          // audio is unlocked by the first talk / Enter
+  ensureSource();
+  const g = musicOut().gain, now = actx.currentTime;
+  g.cancelScheduledValues(now); g.setValueAtTime(g.value, now);
+  if (moving) {
+    if (music.el) music.el.play().catch(() => {}); else music.pad.start();
+    g.linearRampToValueAtTime(speakingNow() ? DUCKED : MUSIC_VOL, now + 1.0);
+  } else {
+    g.linearRampToValueAtTime(0, now + 2.5);
+    setTimeout(() => { if (!music.moving) { music.el?.pause(); music.pad?.stop(); } }, 2700);
+  }
+}
+const speakingNow = () => !!playingAudio || !!window.speechSynthesis?.speaking;
+setInterval(() => {                         // duck under Goof-E's voice
+  if (!music.gain || !music.moving || !music.on) return;
+  music.gain.gain.setTargetAtTime(speakingNow() ? DUCKED : MUSIC_VOL, actx.currentTime, .25);
+}, 200);
+
+/* ================= state + chat ================= */
+let phase = "offline", phaseText = "";
+const LABEL = {offline: "Offline", online: "Standing by", listening: "Listening", transcribing: "Transcribing",
+               thinking: "Thinking", acting: "Working", speaking: "Speaking"};
+function setPhase(p, text) { phase = p; phaseText = text || ""; refreshState(); }
+function refreshState() {
+  const speaking = !!playingAudio || !!window.speechSynthesis?.speaking || !!playing;
+  const p = (phase === "online" && speaking) ? "speaking" : phase;
+  orb.state = p;
+  $("stateText").textContent = phaseText && (p === "acting" || p === "thinking") ? phaseText.replace(/…$/, "") : (LABEL[p] || p);
+  $("stop").hidden = !(busy || p === "listening");
+  $("hint").hidden = busy || p === "listening";
+}
+setInterval(refreshState, 250);
+function clearEmpty() { $("empty")?.remove(); }
+function add(kind, text, cls = "") {
+  clearEmpty();
+  const d = document.createElement("div");
+  d.className = (kind === "note" ? "note " : `msg ${kind} `) + cls;
+  d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+function addScan(objects, note) {
+  clearEmpty();
+  const d = document.createElement("div"); d.className = "scan";
+  const img = document.createElement("img"); img.src = "/view.jpg?t=" + Date.now(); img.alt = "Desk scan";
+  img.onload = () => { log.scrollTop = log.scrollHeight; };   // it grows once loaded
+  img.onclick = () => { $("lightbox").querySelector("img").src = img.src; $("lightbox").hidden = false; };
+  const cap = document.createElement("div");
+  cap.textContent = objects.length
+    ? objects.map(o => `${o.id} ${o.label || "object"}${o.graspable ? "" : " ✕"}`).join(" · ")
+    : "No objects found";
+  d.append(img, cap); log.appendChild(d); log.scrollTop = log.scrollHeight;
+  if (note) add("note", note, "warn");
+}
+$("lightbox").onclick = () => { $("lightbox").hidden = true; };
+
+/* ================= socket ================= */
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => setPhase("online");
+  ws.onclose = () => { setPhase("offline"); setTimeout(connect, 1500); };
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    switch (m.type) {
+      case "busy": busy = m.on; setPhase(m.on ? "thinking" : "online", m.on ? "Thinking…" : ""); break;
+      case "status": if (busy) setPhase(m.tool ? "acting" : "thinking", m.text); break;
+      case "say": add("bot", m.text); speak(m.text); break;
+      case "exclaim": exclaim(m.text, m.mood); add("bot", m.text, "cheer " + m.mood); break;
+      case "reply": add("bot", m.text); speak(m.text); break;
+      case "tool_result": if (m.error) add("note", m.text, "err"); break;
+      case "motion": musicMotion(m.on); break;
+      case "objects": {
+        const note = m.detector_note ? m.detector_note.split(". Using")[0] + ": using the basic detector." : "";
+        addScan(m.objects || [], note); break;
+      }
+    }
+  };
+}
+function send(text) {
+  text = text.trim();
+  if (!text) return;
+  if (busy) { add("note", "Still working. Press Stop to interrupt.", "warn"); return; }
+  audio();                                     // a keypress/click unlocks audio for music + voice
+  add("you", text);
+  ws.send(JSON.stringify({type: "command", text}));
+}
+
+/* ================= push to talk ================= */
+let recorder = null, chunks = [], stream = null;
+
+// Use the Mac's own microphone, never a nearby iPhone (Continuity) that macOS may have made
+// the default input. Open it by its id so the default device (the phone) is never touched,
+// and keep it open between presses so talking starts instantly.
+const MAC_MIC = /macbook|built-in|internal/i, NOT_MAC = /iphone|ipad|continuity/i;
+let held = false, opening = null;
+async function audioInputs() {
+  return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+}
+async function openMacMic() {
+  let mics = await audioInputs();
+  if (!mics.some(d => d.label)) {
+    // No permission yet, so no names: ask once (this one time may use the default mic).
+    (await navigator.mediaDevices.getUserMedia({audio: true})).getTracks().forEach(t => t.stop());
+    mics = await audioInputs();
+  }
+  const mac = mics.find(d => MAC_MIC.test(d.label) && !NOT_MAC.test(d.label));
+  const other = mics.find(d => d.deviceId !== "default" && !NOT_MAC.test(d.label));
+  const pick = mac || other;
+  const s = await navigator.mediaDevices.getUserMedia(
+    {audio: pick ? {deviceId: {exact: pick.deviceId}} : true});
+  const label = s.getAudioTracks()[0]?.label || "default microphone";
+  if (!mac) add("note", `Couldn’t find the Mac’s built-in mic; using “${label}”.`, "warn");
+  else add("note", `Mic: ${label.replace(/^Default - /, "")}`);
+  console.log("mic:", label);
+  return s;
+}
+function micReady() {
+  const t = stream?.getAudioTracks()[0];
+  return t && t.readyState === "live";
+}
+async function ensureMic() {
+  if (micReady()) return stream;
+  if (!opening) opening = openMacMic().finally(() => { opening = null; });
+  const s = await opening;
+  if (stream && stream !== s) stream.getTracks().forEach(t => t.stop());
+  stream = s;
+  if (micSrc) { micSrc.disconnect(); micSrc = null; }
+  return stream;
+}
+// Mics come and go (the phone nearby, a headset): reopen only if ours went away.
+navigator.mediaDevices?.addEventListener?.("devicechange", async () => {
+  if (recorder || !stream) return;
+  const id = stream.getAudioTracks()[0]?.getSettings().deviceId;
+  if (!micReady() || !(await audioInputs()).some(d => d.deviceId === id)) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+});
+// If the mic was already allowed, open it now so the first press doesn't wait.
+navigator.permissions?.query({name: "microphone"}).then(p => { if (p.state === "granted") ensureMic().catch(() => {}); }).catch(() => {});
+
+async function startRec() {
+  if (recorder || busy || held) return;
+  held = true;
+  audio();                                     // unlock audio on a user gesture
+  if (!micReady()) setPhase("listening");      // show we heard the press while the mic opens
+  try { await ensureMic(); }
+  catch (e) { held = false; setPhase("online"); add("note", "Microphone unavailable: " + e.message, "err"); return; }
+  if (!held) { setPhase("online"); return; }   // let go before the mic was ready
+  hush();
+  if (!micSrc) { micSrc = audio().createMediaStreamSource(stream); micA = audio().createAnalyser(); micA.fftSize = 512; micSrc.connect(micA); }
+  const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find(t => MediaRecorder.isTypeSupported(t)) || "";
+  recorder = new MediaRecorder(stream, type ? {mimeType: type} : {});
+  chunks = [];
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  recorder.onstop = upload;
+  recorder.start();
+  setPhase("listening");
+}
+function stopRec() { held = false; if (recorder) { recorder.stop(); recorder = null; } }
+async function upload() {
+  const blob = new Blob(chunks, {type: chunks[0]?.type || "audio/webm"});
+  if (blob.size < 2000) { setPhase("online"); add("note", "Too short. Hold while you speak.", "warn"); return; }
+  const form = new FormData(); form.append("audio", blob, "speech." + (blob.type.includes("mp4") ? "m4a" : "webm"));
+  setPhase("transcribing");
+  try {
+    const r = await fetch("/api/transcribe", {method: "POST", body: form});
+    const {text} = await r.json();
+    if (text) send(text); else { setPhase("online"); add("note", "Didn’t catch that.", "warn"); }
+  } catch (e) { setPhase("online"); add("note", "Transcription failed: " + e.message, "err"); }
+}
+function stopAll() {
+  hush(); stopRec(); orb.flash = 1; musicMotion(false);
+  if (ws?.readyState === 1) ws.send(JSON.stringify({type: "stop"}));
+  add("note", "Stop", "err");
+}
+
+const wrap = $("orbWrap");
+wrap.addEventListener("pointerdown", e => { e.preventDefault(); startRec(); });
+["pointerup", "pointerleave", "pointercancel"].forEach(ev => wrap.addEventListener(ev, stopRec));
+document.addEventListener("keydown", e => {
+  if (e.target === $("text")) return;
+  if (e.code === "Space" && !e.repeat) { e.preventDefault(); startRec(); }
+  if (e.key === "Escape") stopAll();
+});
+document.addEventListener("keyup", e => { if (e.code === "Space" && e.target !== $("text")) { e.preventDefault(); stopRec(); } });
+$("text").addEventListener("keydown", e => {
+  if (e.key === "Enter") { send(e.target.value); e.target.value = ""; }
+  if (e.key === "Escape") stopAll();
+});
+$("stop").onclick = stopAll;
+$("voiceBtn").onclick = () => {
+  voiceOn = !voiceOn; if (!voiceOn) hush();
+  $("voiceBtn").classList.toggle("off", !voiceOn); $("voiceBtn").setAttribute("aria-pressed", voiceOn);
+  $("waves").style.display = voiceOn ? "" : "none";
+};
+$("musicBtn").onclick = () => {
+  music.on = !music.on;
+  $("musicBtn").classList.toggle("off", !music.on); $("musicBtn").setAttribute("aria-pressed", music.on);
+  if (!music.on && music.gain) { music.gain.gain.setTargetAtTime(0, actx.currentTime, .2); music.el?.pause(); music.pad?.stop(); }
+  else if (music.on && music.moving) musicMotion(true);
+};
+$("resetBtn").onclick = () => {
+  if (busy) { add("note", "Busy. Stop first, then start over.", "warn"); return; }
+  log.innerHTML = '<div class="empty" id="empty"><b>NEW SESSION</b>What should we do?</div>';
+  ws?.readyState === 1 && ws.send(JSON.stringify({type: "reset"}));
+};
+connect();
+</script>
+</body>
+</html>

@@ -21,6 +21,7 @@ conda activate lerobot-mac
 | `python -m deskbot.hover 5 20` | Hold the tip 20 mm above target 5, to measure the real gap. |
 | `python -m deskbot.perceive --background` | Save the empty desk (arm parked at rest); redo if lighting or the sheet changes. |
 | `python -m deskbot.perceive` | Find objects; prints position, size, grip angle and writes `snapshots/objects.jpg`. |
+| `open run_app.command` | **Voice web app** (Phase 5): starts in Terminal and opens http://127.0.0.1:8765. Hold to talk (or space bar), or type. Needs `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` in `.env`. |
 | `python -m deskbot.perceive --er2` | Same, but Gemini Robotics-ER 2 finds and names the objects (needs `GEMINI_API_KEY` in `.env`). |
 | `python -m deskbot.pick_place` | Click an object, then where it should go; the arm moves it (run from Terminal). Uses ER 2; `--classic` for the empty-desk comparison only. |
 

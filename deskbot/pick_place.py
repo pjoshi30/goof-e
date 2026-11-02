@@ -46,9 +46,13 @@ def main() -> None:
             if "--classic" in sys.argv:
                 objs = find_objects(frame, background, desk, model, arm.limits)
             else:
-                from .er2 import find_objects_er2
-                objs, info = find_objects_er2(frame, background, desk, model, arm.limits)
-                print(f"  (ER 2: {info['seconds']:.1f} s)")
+                from .er2 import DetectorUnavailable, find_objects_er2
+                try:
+                    objs, info = find_objects_er2(frame, background, desk, model, arm.limits)
+                    print(f"  (ER 2: {info['seconds']:.1f} s)")
+                except DetectorUnavailable as e:
+                    print(f"  ({e}; using the basic detector)")
+                    objs = find_objects(frame, background, desk, model, arm.limits)
             for o in objs:
                 print(f"  #{o.id} {o.label}: ({o.x*100:.1f}, {o.y*100:.1f}) cm, {o.length_mm:.0f} x {o.width_mm:.0f} mm"
                       + ("" if o.graspable else "  (can't grab)"))

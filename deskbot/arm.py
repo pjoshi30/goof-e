@@ -10,7 +10,9 @@ Safety behaviour:
   A second Ctrl+C while parking leaves it holding position (torque on).
 """
 
+import threading
 import time
+from contextlib import contextmanager
 
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
 
@@ -19,6 +21,32 @@ from .poses import Pose, load_poses
 
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 GRIPPER_SPEED = 200.0  # gripper units/second (full open<->close in ~0.5 s)
+
+
+class Stopped(Exception):
+    """Raised inside a move when someone pressed Stop; the arm is already holding still."""
+
+
+def interruptible(stop_event: threading.Event, fn, *args, **kwargs):
+    """Run a slow call (an API request, a camera grab) so Stop takes effect at once:
+    on Stop, raise Stopped right away and let the abandoned call finish in the background."""
+    box: dict = {}
+
+    def work():
+        try:
+            box["value"] = fn(*args, **kwargs)
+        except BaseException as e:  # hand any error back to the caller
+            box["error"] = e
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    while t.is_alive():
+        if stop_event.is_set():
+            raise Stopped()
+        t.join(0.05)
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 def _min_jerk(s: float) -> float:
@@ -30,6 +58,10 @@ class Arm:
         cfg = SO101FollowerConfig(port=port, id=robot_id, use_degrees=True)
         self.robot = SO101Follower(cfg)
         self.limits: dict[str, tuple[float, float]] = {}
+        self.stop_event = threading.Event()   # set from another thread to halt the current move
+        # on_motion(True) when the arm starts moving, on_motion(False) once it has been still a while
+        self.on_motion = None
+        self._moving, self._last_move = False, 0.0
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -88,6 +120,7 @@ class Arm:
             print("No 'rest' pose taught — leaving torque ON so the arm doesn't drop.")
             self.robot.bus.disconnect(disable_torque=False)
             return
+        self.stop_event.clear()  # a pending Stop shouldn't block parking
         try:
             print("Parking at 'rest'…")
             self.move_to(rest, speed=40)
@@ -139,13 +172,50 @@ class Arm:
         dt = 1.0 / config.CONTROL_HZ
         t0 = time.perf_counter()
         while True:
+            if self.stop_event.is_set():
+                self.hold()
+                raise Stopped()
             t = time.perf_counter() - t0
+            self._moved()
             s = _min_jerk(min(1.0, t / t_total))
             cmd = {f"{j}.pos": start[j] + (goal[j] - start[j]) * s for j in JOINTS}
             self.robot.send_action(cmd)
             if t >= t_total:
                 break
             time.sleep(max(0.0, dt - (time.perf_counter() - t0 - t)))
+
+    MOTION_IDLE_S = 2.0   # this long without a move = "stopped moving"
+
+    def _moved(self) -> None:
+        """Note that the arm is moving now; tell the listener on start, and (from a watcher
+        thread) once it has been still for MOTION_IDLE_S."""
+        self._last_move = time.monotonic()
+        if self._moving or self.on_motion is None:
+            return
+        self._moving = True
+        self.on_motion(True)
+
+        def watch():
+            while self._busy or time.monotonic() - self._last_move < self.MOTION_IDLE_S:
+                time.sleep(0.2)
+            self._moving = False
+            if self.on_motion:
+                self.on_motion(False)
+
+        threading.Thread(target=watch, daemon=True).start()
+
+    _busy = 0   # > 0 while inside busy(): counts as moving even during pauses
+
+    @contextmanager
+    def busy(self):
+        """Treat a whole task (e.g. pick, camera check, place) as one motion, so pauses in it
+        (like the camera checking the grab) don't count as the arm having stopped."""
+        self._busy += 1
+        try:
+            yield
+        finally:
+            self._busy -= 1
+            self._last_move = time.monotonic()   # then the usual idle wait before "stopped"
 
     def settle(self, target: Pose, rounds: int = 4, tol_deg: float = 0.3, max_fix_deg: float = 6.0) -> None:
         """Nudge the arm onto `target` after a move. The servos stop a little short under the
@@ -154,6 +224,9 @@ class Arm:
         cmd = {j: target[j] for j in joints}
         for _ in range(rounds):
             time.sleep(0.25)
+            if self.stop_event.is_set():
+                self.hold()
+                raise Stopped()
             now = self.read()
             err = {j: target[j] - now[j] for j in joints}
             if max(abs(e) for e in err.values()) < tol_deg:

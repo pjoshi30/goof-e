@@ -117,21 +117,56 @@ def _jaw_dir(model: ArmModel, q: dict) -> np.ndarray:
     return x / (np.linalg.norm(x) + 1e-9)
 
 
+CARRY_Z = 0.11             # carry height when placing, m: clears desk objects, and unlike SAFE_Z
+                           # (0.15) it's reachable out to the far edge at most wrist rolls
+ROLL_STEP = 45.0           # wrist rolls tried when the held one can't reach (deg)
+
+
+def plan_place(model: ArmModel, limits: dict, x: float, y: float, roll: float, seed: dict | None,
+               held_width_mm: float = 0.0):
+    """-> (q_high, q_hover, q_low) to set the held object's centre down at (x, y), or None.
+
+    The wrist roll changes where the tool tip ends up (it's off the roll axis), so a spot that
+    fails at the roll we grabbed with can work at another. Try the current roll first, then
+    the others nearest to it, so the object turns as little as possible on the way."""
+    lo, hi = limits["wrist_roll"]
+    rolls = [roll] + sorted((r for r in np.arange(-135.0, 136.0, ROLL_STEP) if lo <= r <= hi and abs(r - roll) > 1),
+                            key=lambda r: abs(r - roll))
+    offset = held_width_mm / 2000
+    target = np.array([x, y])
+    # Quick no: a spot beyond reach fails at every roll, and each failed solve is slow. If
+    # the set-down point fails at three spread-out rolls, don't try the rest.
+    if not any(model.ik((x, y, PLACE_Z), limits, roll=r, seed=seed) is not None
+               for r in (roll, *(r for r in (-90.0, 90.0) if lo <= r <= hi))):
+        return None
+    for r in rolls:
+        tip, pts = target, None
+        for _ in range(3):  # the jaw direction depends on the arm pose: refine a couple of times
+            pts = []
+            for z in (PLACE_Z, HOVER_Z, CARRY_Z):   # lowest first: if that fails, skip the rest
+                q = model.ik((*tip, z), limits, roll=r, seed=pts[-1] if pts else seed)
+                if q is None:
+                    break
+                pts.append(q)
+            if len(pts) < 3:
+                pts = None
+                break
+            pts = pts[::-1]                          # -> high, hover, low
+            tip = target - offset * _jaw_dir(model, pts[2])
+        if pts is not None:
+            return tuple(pts)
+    return None
+
+
 def place(arm: Arm, model: ArmModel, x: float, y: float, held_width_mm: float = 0.0) -> str | None:
     """Carry what's held so its centre lands on (x, y), set it down, let go, back off.
 
     The jaws clamp the object against the fixed jaw, so its centre sits half its width
     beside the tool tip (towards the moving jaw). Aim the tip that far short."""
     seed = arm.read()
-    roll = seed["wrist_roll"]
-    offset = held_width_mm / 2000
-    target = np.array([x, y])
-    tip, pts = target, None
-    for _ in range(3):  # the jaw direction depends on the arm pose, so refine a couple of times
-        pts = [model.ik((*tip, z), arm.limits, roll=roll, seed=seed) for z in (SAFE_Z, HOVER_Z, PLACE_Z)]
-        if any(p is None for p in pts):
-            return f"({x*100:.1f}, {y*100:.1f}) cm is out of reach"
-        tip = target - offset * _jaw_dir(model, pts[2])
+    pts = plan_place(model, arm.limits, x, y, seed["wrist_roll"], seed, held_width_mm)
+    if pts is None:
+        return f"({x*100:.1f}, {y*100:.1f}) cm is out of reach"
     high, hover, low = pts
     held = {"gripper": CLOSED}
     arm.move_to({**high, **held}, speed=40)

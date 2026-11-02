@@ -28,6 +28,31 @@ THINKING_LEVEL = "medium"   # Google's suggested latency/quality balance for ER
 SEND_WIDTH = 1280           # downscale before sending: faster, and plenty for pointing
 ROOT = Path(__file__).resolve().parent.parent
 LAST_RESPONSE = ROOT / "snapshots" / "er2_last.json"
+SHORT_WAIT_S = 20          # rate limits shorter than this are retried once; longer ones fall back
+
+
+class DetectorUnavailable(Exception):
+    """ER 2 can't be used right now (quota, outage, bad key). The message says why, for people."""
+
+
+_blocked_until = 0.0       # after a quota/billing error, don't ask again until then (time.time())
+_blocked_why = ""
+
+
+def _retry_after_s(err) -> float | None:
+    """Google's suggested wait from a 429 (RetryInfo.retryDelay like '2787s'), if present."""
+    try:
+        for d in err.details.get("error", {}).get("details", []):
+            if "RetryInfo" in d.get("@type", ""):
+                return float(str(d["retryDelay"]).rstrip("s"))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        pass
+    return None
+
+
+def _quota_kind(err) -> str:
+    text = str(getattr(err, "details", "")) + str(err)
+    return "daily" if "PerDay" in text or "per day" in text.lower() else "rate"
 
 PROMPT = """This is a top-down photo of a desk with a small robot arm on the right.
 Find every separate loose object lying on the desk that a robot could pick up or that is part of
@@ -66,16 +91,48 @@ def ask_er2(img: np.ndarray) -> tuple[list[dict], float]:
     h, w = img.shape[:2]
     small = cv2.resize(img, (SEND_WIDTH, round(h * SEND_WIDTH / w)))
     ok, jpg = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    from google.genai import errors
+
+    global _blocked_until, _blocked_why
+    if time.time() < _blocked_until:
+        mins = max(1, round((_blocked_until - time.time()) / 60))
+        raise DetectorUnavailable(f"{_blocked_why} (not retrying for about {mins} min)")
+
     client = _client()  # keep a reference: the client closes its connection when collected
     t0 = time.perf_counter()
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=[types.Part.from_bytes(data=jpg.tobytes(), mime_type="image/jpeg"), PROMPT],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            thinking_config=types.ThinkingConfig(thinking_level=THINKING_LEVEL),
-        ),
-    )
+    for attempt in (1, 2):
+        try:
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=[types.Part.from_bytes(data=jpg.tobytes(), mime_type="image/jpeg"), PROMPT],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    thinking_config=types.ThinkingConfig(thinking_level=THINKING_LEVEL),
+                ),
+            )
+            break
+        except errors.APIError as e:
+            if e.code == 429:
+                wait = _retry_after_s(e)
+                if attempt == 1 and wait is not None and wait <= SHORT_WAIT_S:
+                    time.sleep(wait + 0.5)       # a brief per-minute limit: wait it out once
+                    continue
+                wait = wait if wait is not None else 60.0
+                _blocked_until = time.time() + wait
+                what = "daily free-tier quota" if _quota_kind(e) == "daily" else "rate limit"
+                _blocked_why = f"Gemini ER 2 hit its {what}"
+                raise DetectorUnavailable(f"{_blocked_why} (try again in about {max(1, round(wait / 60))} min)") from e
+            if e.code in (500, 502, 503, 504) and attempt == 1:
+                time.sleep(2)                    # transient server trouble: one retry
+                continue
+            if e.code == 402:                    # prepaid billing balance used up
+                _blocked_until = time.time() + 600
+                _blocked_why = "Gemini's prepaid credits are used up (top up the project's billing in AI Studio)"
+                raise DetectorUnavailable(_blocked_why) from e
+            if e.code in (401, 403):
+                raise DetectorUnavailable("Gemini rejected the API key (it must have an API "
+                                          "restriction set in AI Studio)") from e
+            raise DetectorUnavailable(f"Gemini ER 2 returned an error ({e.code}: {e.message or e.status})") from e
     took = time.perf_counter() - t0
     text = response.text or "[]"
     LAST_RESPONSE.parent.mkdir(exist_ok=True)

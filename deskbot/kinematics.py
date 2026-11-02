@@ -8,6 +8,7 @@ known points on the printed sheet.
 """
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -39,8 +40,17 @@ def _rpy(r, p, y):
 
 
 def _rz(a):
-    c, s = np.cos(a), np.sin(a)
+    c, s = math.cos(a), math.sin(a)
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+
+
+def _mul_rz(R, a):
+    """R @ _rz(a) without building the matrix (fk runs ~100k times per IK solve)."""
+    c, s = math.cos(a), math.sin(a)
+    out = R.copy()
+    out[:, 0] = R[:, 0] * c + R[:, 1] * s
+    out[:, 1] = R[:, 1] * c - R[:, 0] * s
+    return out
 
 
 _FIXED = [(np.array(xyz), _rpy(*rpy)) for xyz, rpy in _URDF_JOINTS]
@@ -63,9 +73,9 @@ class ArmModel:
         p = np.array(self.base_xyz, float)
         for k, (xyz, Rf) in enumerate(_FIXED):
             p = p + R @ xyz
-            ang = np.deg2rad(self.signs[k] * q.get(CHAIN_JOINTS[k], 0.0) + self.offsets_deg[k])
-            R = R @ Rf @ _rz(ang)
-        return p + R @ np.array(self.tip), R
+            ang = math.radians(self.signs[k] * q.get(CHAIN_JOINTS[k], 0.0) + self.offsets_deg[k])
+            R = _mul_rz(R @ Rf, ang)
+        return p + R @ np.asarray(self.tip, float), R
 
     def tip_position(self, q: dict) -> np.ndarray:
         return self.fk(q)[0]
@@ -121,7 +131,7 @@ class ArmModel:
                     seeds.append(np.array([pan0, lift, elbow, wf], float))
 
         best = None
-        for x in seeds:
+        for i, x in enumerate(seeds):
             x = np.clip(x, lo, hi)
             lam = 1e-2
             e = err(x)
@@ -144,6 +154,8 @@ class ArmModel:
             ang_deg = np.degrees(np.linalg.norm(e[3:]) / 0.05)
             if pos_mm < tol_mm and ang_deg < 5 and (best is None or pos_mm < best[0]):
                 best = (pos_mm, x)
+                if seed and i == 0 and pos_mm < 0.5:
+                    break   # the current pose led straight there: keep it (no needless flips)
         if best is None:
             return None
         return {**dict(zip(IK_JOINTS, map(float, best[1]))), "wrist_roll": float(roll)}

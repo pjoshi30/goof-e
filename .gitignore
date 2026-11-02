@@ -5,3 +5,5 @@ snapshots/
 calib/*.jpg
 calib/*.png
 .env
+music/*
+!music/README.md
