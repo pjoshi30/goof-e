@@ -158,11 +158,25 @@ def _box_outline(box) -> np.ndarray:
     return np.array([[[x0, y0]], [[x1, y0]], [[x1, y1]], [[x0, y1]]], dtype=np.int32)
 
 
+PIECE_GAP_PX = 45   # extra pieces this close (~1.8 cm) to an object's main piece can belong to it
+PIECE_MIN_PX = 300  # smaller stray pieces are speckle
+
+
+def _inbox(shape, box, grow: bool = True) -> np.ndarray:
+    """ER 2's box as a pixel mask, grown a little by default (boxes can be a little tight)."""
+    x0, y0, x1, y1 = box
+    mx, my = (0.15 * (x1 - x0) + 8, 0.15 * (y1 - y0) + 8) if grow else (0, 0)
+    out = np.zeros(shape, bool)
+    out[max(0, int(y0 - my)):int(y1 + my), max(0, int(x0 - mx)):int(x1 + mx)] = True
+    return out
+
+
 def split_by_points(img: np.ndarray, mask: np.ndarray, found: list[dict]) -> list[np.ndarray | None]:
     """Watershed the change mask with one seed per ER 2 object.
     -> outline per object, or None where the mask has (almost) nothing for it."""
     h, w = mask.shape
-    _, comp = cv2.connectedComponents(mask)
+    n_comp, comp, stats, _ = cv2.connectedComponentsWithStats(mask)
+    areas = stats[:, cv2.CC_STAT_AREA]
 
     # Which changed blob is each object's point in? (Snap to the nearest blob within ~6 mm.)
     blob_of = []
@@ -206,16 +220,29 @@ def split_by_points(img: np.ndarray, mask: np.ndarray, found: list[dict]) -> lis
             lab[rest] = nearest[rest]
         labels[inside] = lab[inside]
 
+    # An object can show as several pieces (a marker's white label, a screwdriver's thin
+    # shaft barely differ from the desk). Add pieces that nobody's point is on when they
+    # sit inside this object's box and close to its main piece.
+    unclaimed = [b for b in range(1, n_comp) if b not in blob_of and areas[b] >= PIECE_MIN_PX]
+    for k, f in enumerate(found):
+        own = labels == k + 1
+        if not own.any():
+            continue
+        inbox = _inbox(mask.shape, f["box"], grow=False)   # strict: extra pieces need more proof
+        near = cv2.dilate(own.astype(np.uint8), np.ones((2 * PIECE_GAP_PX + 1,) * 2, np.uint8)) > 0
+        for b in unclaimed:
+            piece = comp == b
+            if (piece & near).any() and (piece & inbox).sum() > 0.8 * areas[b]:
+                labels[piece & (labels == 0)] = k + 1
+
     outlines = []
     for k, f in enumerate(found):
         x0, y0, x1, y1 = f["box"]
-        mx, my = 0.15 * (x1 - x0) + 8, 0.15 * (y1 - y0) + 8   # boxes can be a little tight
-        inbox = np.zeros_like(mask, bool)
-        inbox[max(0, int(y0 - my)):int(y1 + my), max(0, int(x0 - mx)):int(x1 + mx)] = True
-        region = (labels == k + 1) & inbox
-        # A thin object lying diagonally fills only ~15% of its upright box, so keep this low.
+        region = (labels == k + 1) & _inbox(mask.shape, f["box"])
+        # A thin object lying diagonally fills only ~15% of its upright box, and sometimes
+        # only its handle shows, so keep this low.
         box_area = max(1.0, (x1 - x0) * (y1 - y0))
-        if region.sum() < max(300, 0.08 * box_area):
+        if region.sum() < max(300, 0.04 * box_area):
             outlines.append(None)  # e.g. white-on-white: the change mask barely sees it
             continue
         ys, xs = np.nonzero(region)

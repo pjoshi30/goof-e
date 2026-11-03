@@ -20,7 +20,8 @@ from .targets import OUT_DIR
 BACKGROUND_FILE = OUT_DIR / "background.png"
 WORK_AREA_FILE = OUT_DIR / "work_area.json"   # desk outline (world m); objects outside it are ignored
 
-DIFF_THRESHOLD = 14.0      # colour distance (LAB units) that counts as "changed"
+DIFF_THRESHOLD = 0.5       # relative colour difference (log units) that counts as "changed"
+LOCAL_SIGMA_PX = 25        # "surroundings" scale for relative(); bigger than a screwdriver handle
 GROUP_PX = 15              # pieces this close (pixels, ~6 mm on the desk) count as one object
 MIN_AREA_CM2 = 1.0         # smaller blobs are noise (crumbs, glare)
 MAX_AREA_CM2 = 400.0       # bigger ones are lighting changes or the arm, not objects
@@ -86,16 +87,28 @@ def _work_area_test(path: Path = WORK_AREA_FILE):
     return lambda x, y: inside(d["desk_m"], x, y) and not any(inside(p, x, y) for p in d["ignore_m"])
 
 
-def change_mask(img: np.ndarray, background: np.ndarray) -> np.ndarray:
-    """Pixels that differ from the empty desk, cleaned up into solid blobs."""
-    a = cv2.cvtColor(cv2.GaussianBlur(img, (7, 7), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
-    b = cv2.cvtColor(cv2.GaussianBlur(background, (7, 7), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
+def relative(img: np.ndarray) -> np.ndarray:
+    """Each pixel's colour relative to its surroundings (log ratio to a ~25 px blur, per channel).
+    Lighting changes (daylight vs. lamp, white balance, uneven glow) scale a whole area
+    together, so they cancel out here; an object differs from what's around it, so it stays."""
+    f = cv2.GaussianBlur(img, (5, 5), 0).astype(np.float32) + 8.0
+    return np.log(f) - np.log(cv2.GaussianBlur(f, (0, 0), LOCAL_SIGMA_PX))
+
+
+def relative_distance(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Per-pixel difference between two relative() images. Shadows only darken, so
+    darkening counts at half weight; a dark object on white paper still stands out."""
     d = a - b
-    d[..., 0] -= np.median(d[..., 0])   # overall brightness drift (clouds, lamp) isn't an object
-    # Shadows only darken, and only a little: count darkening at half weight so a shadow
-    # stays under the threshold while a dark object on white paper still stands out.
-    d[..., 0] = np.where(d[..., 0] < 0, 0.5, 1.0) * d[..., 0]
-    dist = np.sqrt((d ** 2).sum(axis=2))
+    shade = d.mean(axis=2, keepdims=True)
+    d = d - shade + np.where(shade < 0, 0.5, 1.0) * shade
+    return np.sqrt((d ** 2).sum(axis=2))
+
+
+def change_mask(img: np.ndarray, background: np.ndarray) -> np.ndarray:
+    """Pixels that differ from the empty desk, cleaned up into solid blobs. Compares each
+    pixel to its surroundings rather than raw colours, so it works in any lighting.
+    (Large plain objects show mostly as their edges; outlines use the convex hull.)"""
+    dist = relative_distance(relative(img), relative(background))
     mask = (dist > DIFF_THRESHOLD).astype(np.uint8) * 255
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))

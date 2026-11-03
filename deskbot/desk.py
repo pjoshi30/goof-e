@@ -19,7 +19,8 @@ from .emotions import EMOTIONS
 from .er2 import DetectorUnavailable, find_objects_er2
 from .grasp import CLOSED, HELD_MIN, pick, place, plan_grasp, plan_place
 from .kinematics import ArmModel
-from .perception import DeskObject, _work_area_test, annotate, find_objects, load_background
+from .perception import (DIFF_THRESHOLD, DeskObject, _work_area_test, annotate, find_objects,
+                         load_background, relative, relative_distance)
 from .poses import require_pose
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -279,9 +280,8 @@ class Desk:
         region = cv2.erode(region, np.ones((9, 9), np.uint8)) > 0
         if region.sum() < 200:
             return "unclear"
-        lab = lambda im: cv2.cvtColor(cv2.GaussianBlur(im, (7, 7), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
-        a, b, bg = lab(now), lab(before), lab(self.background)
-        near = lambda x, y: (np.sqrt(((x - y) ** 2).sum(axis=2)) < 14)[region].mean()
+        a, b, bg = relative(now), relative(before), relative(self.background)   # lighting-proof
+        near = lambda x, y: (relative_distance(x, y) < DIFF_THRESHOLD)[region].mean()
         if near(b, bg) > 0.5:
             return "unclear"            # the object hardly showed against the empty desk
         if near(a, bg) > 0.6:
