@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Goof-E, a clumsy desk robot built on the SO-101 arm" src="./media/readme/desk_setup.jpg" width="100%">
+  <img alt="Goof-E, the SO-101 follower arm clamped to a desk" src="./media/readme/follower_arm.jpg" width="320px">
 </p>
 
 <div align="center">
