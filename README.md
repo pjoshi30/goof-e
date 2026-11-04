@@ -27,7 +27,7 @@
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=JQc6S-O5MP4">
-    <img alt="Watch the Goof-E demo on YouTube" src="https://img.youtube.com/vi/JQc6S-O5MP4/maxresdefault.jpg" width="640px">
+    <img alt="Watch the Demo on YouTube" src="https://img.shields.io/badge/Watch_the_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white" height="40">
   </a>
 </p>
 
