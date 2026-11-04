@@ -201,7 +201,3 @@ Issues and pull requests are welcome, whether it's a bug fix, support for anothe
 ## License
 
 [MIT](./LICENSE). LeRobot and the models Goof-E calls are covered by their own licenses and terms.
-
-<div align="center">
-<sub>Built by <a href="https://www.preetamjoshi.com">Preetam Joshi</a> on <a href="https://github.com/huggingface/lerobot">LeRobot</a>, with help from Claude Code.</sub>
-</div>
