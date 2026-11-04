@@ -1,9 +1,18 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Secrets and machine-specific settings
+.env
+.env.*
+!.env.example
+
+# Local runtime data
 snapshots/
+places.json
 calib/*.jpg
 calib/*.png
-.env
+
+# Music you add yourself
 music/*
 !music/README.md
